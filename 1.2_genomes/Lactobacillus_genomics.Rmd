@@ -1,0 +1,188 @@
+---
+title: "Lactobacillus genomics overview"
+author: "Sander Wuyts"
+date: "November 23, 2018"
+output: html_document
+---
+
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(ggrepel)
+```
+
+# Collect data
+
+```{r}
+ncbi <- read.delim("ftp://ftp.ncbi.nlm.nih.gov/genomes/genbank/bacteria/assembly_summary.txt", sep = "\t", skip = 1) 
+
+lactos_ncbi <- ncbi %>%
+  filter(str_detect(organism_name, "Lactobacillus"))
+```
+
+# Analysis
+
+We manually need to add WCFS1, the first genome, as it is not on NCBI!
+The same goes for Lactobacillus acidphilus.
+
+```{r fig.width=8, fig.height=4}
+manualgenomes <- tibble(
+  seq_rel_date = c("2003/02/18"),
+  organism_name = c("italic(L.~plantarum)~WCFS1"),
+  assembly_level = c("Complete Genome")
+  )
+
+# Adapt original file to reflect first publication date of L. acidophilus NCFM
+lactos_ncbi <- lactos_ncbi %>%
+  mutate(seq_rel_date = if_else(seq_rel_date == "2007/11/01", "2005/03/15", as.character(seq_rel_date)))
+
+additional_annotation <- tibble(
+  seq_rel_date = c("2004/02/02", "2005/03/15", "2005/11/02", "2006/03/30", "2006/05/26"),
+  organism_name = c("italic(L.~johnsonii)~NCC~533","italic(L.~acidophilus)~NCFM", "italic(L.~sakei~subsp.~sakei)~`23K`", "italic(L.~salivarius)~UCC118", "italic(L.~delbrueckii~subsp.~bulgaricus)~ATCC~11842")
+)
+
+ncbi_plot <- lactos_ncbi %>%
+  mutate(seq_rel_date = as.character(seq_rel_date)) %>%
+  bind_rows(manualgenomes) %>%
+  group_by(seq_rel_date) %>%
+  summarise(count = n()) %>%
+  mutate(cum_sum = cumsum(count),
+         date = as_date(seq_rel_date)) %>%
+  left_join(manualgenomes %>% bind_rows(additional_annotation)) 
+
+
+text <- expression(paste("Number of available ",italic(Lactobacillus), " genomes"))
+
+ncbi_plot %>%
+  ggplot(aes(x = date, y = cum_sum)) +
+  geom_line() +
+  geom_point() +
+  geom_text_repel(aes(label = organism_name), angle = 90, vjust = -0.1, hjust = 0.1, size = 3, parse = T) +
+  scale_x_date(date_breaks = "2 year", date_labels = "%Y") + 
+  theme_bw() +
+  theme(panel.grid = element_blank()) +
+  ylim(0,1600) +
+  ylab("Count") +
+  xlab("Date") +
+  ggtitle(text)
+
+
+```
+
+On what date where the most number of genomes submitted?
+
+```{r}
+ncbi_plot %>%
+  arrange(-count) %>%
+  head()
+```
+
+Who submitted these?
+
+```{r, fig.width=8}
+lactos_ncbi %>%
+  filter(seq_rel_date %in% c("2015/11/06",
+                             "2017/08/15",
+                             "2017/02/01")) %>%
+  group_by(seq_rel_date, submitter) %>%
+  summarise(count = n()) %>%
+  ggplot(aes(x = seq_rel_date, y = count, group = submitter)) +
+  geom_col(aes(fill = submitter)) +
+  scale_fill_brewer(palette = "Dark2") +
+  coord_flip() +
+  xlab("") +
+  ylab("Count") +
+  ggtitle("Assembly submitters on days with highest increase") +
+  theme_minimal()
+```
+
+```{r, fig.width=10, fig.height=6}
+lactos_ncbi %>%
+  group_by(submitter) %>%
+  summarise(count = n()) %>%
+  arrange(-count) %>%
+  .[1:20,] %>% # Keep top 20 only
+  ggplot(aes(x = reorder(submitter, count), y = count)) +
+  geom_col() +
+  coord_flip() +
+  theme_bw() +
+  xlab("") +
+  ylab("Count") +
+  ggtitle("NCBI: top 20 Lactobacillus submitters")
+
+```
+
+What kind of assembly level was this?
+
+```{r fig.width=8, fig.height=4}
+lactos_ncbi %>% 
+  bind_rows(manualgenomes) %>%
+  filter(assembly_level != "Chromosome") %>%
+  group_by(assembly_level, seq_rel_date) %>%
+  summarise(count = n()) %>%
+  ungroup() %>%
+  complete(seq_rel_date, nesting(assembly_level)) %>%
+  replace_na(list(count = 0)) %>%
+  group_by(assembly_level) %>%
+  mutate(cum_sum = cumsum(count),
+         date = as_date(seq_rel_date)) %>%
+  ggplot(aes(x = date, y = cum_sum)) +
+  geom_area(aes(fill = assembly_level), position = "stack") +
+  geom_segment(aes(x = as_date("2013-06-11"), xend = as_date("2013-06-11"), y = 1500, yend = 300), arrow = arrow()) +
+  geom_text(aes(x = as_date("2013-06-11"), y = 1600, label = "A")) +
+  geom_segment(aes(x = as_date("2015-11-06"), xend = as_date("2015-11-06"), y = 1500, yend = 800), arrow = arrow()) + 
+    geom_text(aes(x = as_date("2015-11-06"), y = 1600, label = "B")) +
+  scale_fill_brewer(palette = "Paired") +
+  scale_x_date(date_breaks = "2 year", date_labels = "%Y") + 
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        legend.position = "bottom",
+        legend.title = element_blank()) +
+  ylab("Count") +
+  xlab("Date") +
+  ggtitle("Number of available Lactobacillus genomes")
+  
+```
+
+Some usefull filtering to look at the genomes number > 15
+
+```{r eval=FALSE, include=FALSE}
+lactos_ncbi %>% 
+  select(seq_rel_date, organism_name, assembly_level, organism_name, X..assembly_accession) %>%
+  arrange(seq_rel_date)
+```
+
+How many species?
+
+```{r}
+lactos_ncbi %>%
+  pull(species_taxid) %>%
+  unique() %>%
+  length()
+```
+
+Most sequenced species
+
+```{r}
+lactos_ncbi %>% 
+  separate(organism_name, into = c("genus", "species"), extra = "drop", fill = "right") %>%
+  group_by(species) %>%
+  summarise(count = n()) %>%
+  arrange(-count) %>%
+  .[1:20,] %>%
+  mutate(species = str_c("L. ", species, " ")) %>%
+  ggplot(aes(x = reorder(species, count), y = count)) +
+  geom_col(col = "lightblue", fill = "lightblue") +
+  coord_flip() +
+  xlab("") + 
+  ylab("") +
+  ggtitle("Most sequenced species on NCBI") + 
+  theme_minimal() +
+  theme(axis.text.y = element_text(face = "italic"),
+        axis.ticks.y = element_line(size = 0.4),
+        
+        panel.grid.major.y = element_blank())
+```
+
+

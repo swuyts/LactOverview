@@ -1,0 +1,109 @@
+---
+title: "Metagenomics"
+author: "Sander Wuyts"
+date: "July 09, 2018"
+output: html_document
+---
+
+
+```{r}
+library(curatedMetagenomicData)
+library(tidyverse)
+library(phyloseq)
+library(ggpubr)
+library(ggtree)
+library(RColorBrewer)
+library(scales)
+```
+
+
+# Get Abundance data from HMP
+
+Using this package:
+https://github.com/twbattaglia/MicrobeDS 
+
+```{r}
+# Load Library
+library(MicrobeDS)
+
+# Load selected datasets
+data('HMPv35')
+
+HMPv35_relabun <- transform_sample_counts(HMPv35, function(x) x / sum(x))
+
+# Check number of samples
+nsamples(HMPv35_relabun)
+```
+Lactos subset
+
+```{r}
+# Subset on lactos and use this for visualisation
+HMPv35_lactos <- subset_taxa(HMPv35_relabun, Genus == "Lactobacillus") %>% 
+  psmelt() %>%
+  filter(Abundance > 0)
+```
+
+## Fig1B
+
+```{R}
+HMP_plot <- HMPv35_lactos %>%
+  distinct() %>%
+  group_by(Sample, env) %>%
+  summarise(summedAbundance = sum(Abundance)*100) %>%
+  ungroup() %>%
+  add_count(env) %>%
+  mutate(study = "HMPv35") %>%
+  rename(body_site = env) %>%
+  mutate(body_site = as.character(body_site)) %>%
+  filter(summedAbundance > 0)
+
+```
+
+
+```{r, fig.width= 12, fig.height=6}
+sample_count <- HMP_plot %>%
+  select(body_site, n, study) %>%
+  distinct() 
+ 
+label_format <- format_format(big.mark = " ", decimal.mark = ".", scientific = FALSE)
+
+Fig1B <- HMP_plot %>%
+  mutate(study = factor(study, levels = c("This study", "HMPv35", "curatedMetagenomics"))) %>%
+  mutate(body_site = factor(body_site, levels = c("Skin", "Oral", "Stool", "Vaginal"))) %>%
+  ggplot(aes(x = body_site, y = summedAbundance, fill = body_site)) +
+  geom_boxplot(outlier.alpha = 0, alpha = 0.4) +
+  geom_point(aes(colour = body_site), position = position_jitterdodge(jitter.height = 0, jitter.width = 0.1),
+             shape = 21, size = 1.2, alpha = 0.2) +
+  geom_text(data = sample_count, aes(y = 250, label = str_c("n = ", n), group = study), position = position_dodge(width = 0.8), size = 6, angle = 45, hjust= 0, vjust= 0) +
+  scale_fill_brewer(palette = "Dark2") +
+  scale_colour_brewer(palette = "Dark2") +
+  expand_limits(y = 8000) +
+  scale_y_log10(labels = label_format, breaks = c(0.01,1,100)) +
+  ylab("\n Relative abundance (%)") +
+  theme_minimal() +
+  theme(strip.text.x = element_text(face = "bold", size = 14),
+        
+        axis.text.x = element_text(size = 16, angle = 45, hjust = 1, vjust =1, face = "bold"),
+        axis.text.y = element_text(face = "bold", size = 16),
+        
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(size = 16),
+        
+        axis.ticks = element_line(),
+        
+        legend.title = element_blank(),
+        legend.position = 'right',
+        legend.text = element_text(size = 16),
+        
+        plot.title = element_text(size = 16),
+        
+        panel.grid.major.y =   element_line(),
+        panel.grid.major.x = element_blank(),
+        panel.grid.minor = element_blank()
+        
+        ) +
+  ggtitle("Relative abundance of Lactobacilli in HMP") 
+
+Fig1B
+```
+
