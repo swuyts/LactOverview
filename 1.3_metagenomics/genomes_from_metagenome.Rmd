@@ -1,0 +1,133 @@
+---
+title: "Genomes from metagenomes"
+author: "Sander Wuyts"
+date: "November 23, 2018"
+output: html_document
+---
+
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(ggpubr)
+```
+
+# Collect data
+
+```{r}
+ncbi <- read.delim("ftp://ftp.ncbi.nlm.nih.gov/genomes/genbank/bacteria/assembly_summary.txt", sep = "\t", skip = 1) 
+
+lactos_ncbi <- ncbi %>%
+  filter(str_detect(organism_name, "Lactobacillus"))
+```
+
+# Analysis
+
+```{r}
+lactos_ncbi <- lactos_ncbi %>%
+  mutate(metagenome_derived = if_else(str_detect(excluded_from_refseq, "metagenome"), " Genomes derived from metagenome", " Other"))
+```
+
+Number of genomes derived from metagenomes
+
+```{r}
+metagenome_number <- lactos_ncbi %>%
+  ggplot(aes(x = 'dummy', fill = metagenome_derived)) +
+  theme_minimal() +
+  geom_bar() +
+  scale_fill_brewer(palette = "Dark2") +
+  theme(axis.text.x = element_blank(),
+        axis.title.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        
+        axis.ticks.y = element_line(size = 0.5),
+        axis.text.y = element_text(size = 12),
+        
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        
+        axis.title.y = element_text(size = 15),
+        
+        legend.title = element_blank(),
+        legend.position = "bottom",
+        legend.justification = "left",
+        plot.margin = unit(c(1, 2.5, 0.5, 0.5), "lines")) +
+  ylab("Number of genomes") +
+  guides(fill = guide_legend(nrow = 2))
+  
+metagenome_number
+```
+
+```{r}
+metagenomes_species <- lactos_ncbi %>% 
+  filter(metagenome_derived == " Genomes derived from metagenome") %>%
+  separate(organism_name, into = c("genus", "species"), extra = "drop", fill = "right") %>%
+  group_by(species) %>%
+  summarise(count = n()) %>%
+  arrange(-count) %>%
+  mutate(species = str_c("Lactobacillus ", species)) %>%
+  ggplot(aes(x = reorder(species, count), y = count)) +
+  geom_col(fill = "#1b9e77") +
+  coord_flip() +
+  xlab(" ") + 
+  theme_minimal() +
+  theme(axis.text.y = element_text(face = "italic"),
+        panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        
+        axis.title.x = element_blank()) +
+  ggtitle("Top 8 species") 
+
+metagenomes_species
+```
+```{r}
+lactos_ncbi %>% 
+  filter(metagenome_derived == " Genomes derived from metagenome") %>%
+  write_tsv("metagenome_genomes.tsv")
+```
+
+I manually annonated the sources based on NCBI searches to the original projects
+
+```{r}
+source <- lactos_ncbi %>% 
+  filter(metagenome_derived == " Genomes derived from metagenome") %>%
+  left_join(read_tsv("metagenome_genomes_source_added.csv")) %>%
+  mutate(source = str_c(" ", str_trim(source), " ")) %>%
+  group_by(source) %>%
+  summarise(count = n()) %>%
+  arrange(-count) %>%
+  ggplot(aes(x = reorder(source, count), y = count)) +
+  geom_col(aes(fill = source)) +
+  coord_flip() +
+  xlab(" ") + 
+  theme_minimal() +
+  theme(panel.grid.major.y = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        
+        plot.margin = unit(c(1.5, 1, 0.5, 0.5), "lines"),
+        
+        legend.title = element_blank(),
+        legend.position = "none") +
+  ylab("Number of genomes") +
+  ggtitle("Metagenome source") +
+  scale_fill_brewer(palette = "Paired") 
+
+source
+```
+
+
+
+
+
+```{r fig.width=8, fig.height=4}
+ggarrange(metagenome_number,
+          ggarrange(metagenomes_species,
+          source,
+          nrow = 2,
+          labels = c("B)", "C)")),
+          ncol = 2,
+          widths = c(0.3, 0.7),
+          labels = c("A)", "")
+)
+```
+
